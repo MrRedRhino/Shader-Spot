@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "id": "mod",
+  "version": "${version}",
+
+  "name": "mod",
+  "description": "",
+  "authors": [],
+  "contact": {},
+
+  "license": "All-Rights-Reserved",
+  "icon": "assets/mod/icon.png",
+
+  "environment": "client",
+  "entrypoints": {
+    "client": ["org.pipeman.mod.client.ModClient"],
+    "main": ["org.pipeman.mod.Mod"]
+  },
+
+  "mixins": [
+    "mod.mixins.json"
+  ],
+
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
