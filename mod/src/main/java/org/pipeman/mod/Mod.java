@@ -1,6 +1,6 @@
 package org.pipeman.mod;
 
-import com.google.gson.GsonBuilder;
+import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientLifecycleEvents;
@@ -19,10 +19,12 @@ import net.minecraft.world.level.dimension.DimensionType;
 import net.minecraft.world.level.gamerules.GameRules;
 import net.minecraft.world.phys.Vec2;
 import net.minecraft.world.phys.Vec3;
+import org.jdbi.v3.core.Jdbi;
+import org.pipeman.mod.ImageProcessor.ImageType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.google.gson.Gson;
 
+import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -44,6 +46,7 @@ public class Mod implements ModInitializer {
             .executor(SCHEDULER)
             .build();
     private static final Gson GSON = new Gson();
+    private static final Jdbi JDBI = Jdbi.create("jdbc:postgresql://localhost:5432/shader_spot", "postgres", readPassword());
     private static CompletableFuture<DownloadResult> currentDownloadFuture;
 
     private static int taskIndex = 0;
@@ -76,6 +79,14 @@ public class Mod implements ModInitializer {
         });
     }
 
+    private static String readPassword() {
+        try {
+            return Files.readString(Path.of("../../secrets/postgres-password"));
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static void worldLoaded() {
         wait(10, TimeUnit.SECONDS)
                 .thenRun(() -> {
@@ -88,12 +99,16 @@ public class Mod implements ModInitializer {
                             .get(Minecraft.getInstance().player.getUUID())
                             .setGameMode(GameType.SPECTATOR);
                 })
-                .thenRun(Mod::handleNextShader);
+                .thenRun(() -> handleNextShader(null));
     }
 
-    private static void handleNextShader() {
+    private static void handleNextShader(String previousShaderName) {
         currentDownloadFuture
                 .thenCompose(downloadResult -> {
+                    if (previousShaderName != null) {
+                        new File("shaderpacks", previousShaderName).delete();
+                    }
+
                     Optional<Task> nextTask = getNextTask();
                     nextTask.ifPresent(task -> currentDownloadFuture = downloadShader(task));
 
@@ -105,14 +120,19 @@ public class Mod implements ModInitializer {
                             .thenApply(_ -> new DownloadResultTaskPair(downloadResult, nextTask));
                 })
 
-                .thenCompose(downloadResultTaskPair ->
-                        takeScreenshots(downloadResultTaskPair.downloadResult.filename())
-                                .thenRun(() -> {
-                                    downloadResultTaskPair.task().ifPresentOrElse(
-                                            _ -> handleNextShader(),
-                                            () -> System.exit(0)
-                                    );
-                                })
+                .thenCompose(pair -> {
+                            Task task = pair.downloadResult().task();
+
+                            return takeScreenshots(task.shaderID(), task.versionID())
+                                    .thenRun(() -> {
+                                        String filename = pair.downloadResult().filename();
+
+                                        pair.nextTask().ifPresentOrElse(
+                                                _ -> handleNextShader(filename),
+                                                () -> System.exit(0)
+                                        );
+                                    });
+                        }
                 )
 
                 .exceptionally(throwable -> {
@@ -132,8 +152,10 @@ public class Mod implements ModInitializer {
         }
     }
 
-    private static CompletableFuture<Void> takeScreenshots(String shaderID) {
-        return iterateAsynchronously(PRESETS, preset -> {
+    private static CompletableFuture<Void> takeScreenshots(String shaderID, String versionID) {
+        List<CompletableFuture<?>> uploads = new ArrayList<>();
+
+        CompletableFuture<Void> iterator = iterateAsynchronously(PRESETS, preset -> {
             Minecraft minecraft = Minecraft.getInstance();
             assert minecraft.player != null;
 
@@ -150,8 +172,14 @@ public class Mod implements ModInitializer {
             Holder<DimensionType> dimensionType = level.dimensionTypeRegistration();
             level.clockManager().setTotalTicks(dimensionType.value().defaultClock().orElseThrow(), preset.daytime());
 
-            return wait(4, TimeUnit.SECONDS).thenCompose(_ -> takeScreenshot(shaderID));
+            return wait(4, TimeUnit.SECONDS)
+                    .thenCompose(_ -> takeScreenshot())
+                    .thenAccept(name -> uploads.add(uploadScreenshot(shaderID, name, preset.id())));
         });
+
+        return iterator
+                .thenCompose(_ -> CompletableFuture.allOf(uploads.toArray(CompletableFuture[]::new)))
+                .thenRun(() -> markImagesRendered(shaderID, versionID));
     }
 
     private static CompletableFuture<Void> wait(long delay, TimeUnit unit) {
@@ -171,22 +199,28 @@ public class Mod implements ModInitializer {
     }
 
     private static <T> void handleIterateAsynchronously(Iterator<T> iterator, Function<T, CompletableFuture<Void>> handler, CompletableFuture<Void> future) {
-        handler.apply(iterator.next()).thenRun(() -> {
-            if (iterator.hasNext()) handleIterateAsynchronously(iterator, handler, future);
-            else future.complete(null);
-        });
+        try {
+            handler.apply(iterator.next()).whenComplete((_, t) -> {
+                if (t != null) future.completeExceptionally(t);
+                else {
+                    if (iterator.hasNext()) handleIterateAsynchronously(iterator, handler, future);
+                    else future.complete(null);
+                }
+            });
+        } catch (Exception e) {
+            future.completeExceptionally(e);
+        }
     }
 
-    private static CompletableFuture<Void> takeScreenshot(String shaderID) {
-        CompletableFuture<Void> future = new CompletableFuture<>();
+    private static CompletableFuture<String> takeScreenshot() {
+        CompletableFuture<String> future = new CompletableFuture<>();
 
         Minecraft.getInstance().execute(() -> {
             Screenshot.takeScreenshot(Minecraft.getInstance().gameRenderer.mainRenderTarget(), image -> {
                 try {
-                    Path path = Path.of(UUID.randomUUID() + ".png");
-                    image.writeToFile(path);
-                    uploadScreenshot(shaderID, path);
-                    future.complete(null);
+                    String name = UUID.randomUUID() + ".png";
+                    image.writeToFile(Path.of(name));
+                    future.complete(name);
                 } catch (IOException e) {
                     future.completeExceptionally(e);
                 }
@@ -196,8 +230,22 @@ public class Mod implements ModInitializer {
         return future;
     }
 
-    private static void uploadScreenshot(String shaderID, Path screenshotPath) {
-        LOGGER.info("Taken screenshot for shader {} ({})", shaderID, screenshotPath);
+    private static CompletableFuture<Void> uploadScreenshot(String shaderID, String screenshotPath, String presetID) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+
+        SCHEDULER.execute(() -> {
+            try {
+                for (int i = 0; i < ImageType.values().length; i++) {
+                    ImageProcessor.preprocessAndUpload(screenshotPath, ImageType.values()[i], presetID, shaderID);
+                }
+
+                future.complete(null);
+            } catch (Exception e) {
+                future.completeExceptionally(e);
+            }
+        });
+
+        return future;
     }
 
     private static CompletableFuture<DownloadResult> downloadShader(Task task) {
@@ -213,15 +261,26 @@ public class Mod implements ModInitializer {
         return Optional.of(TASKS.get(taskIndex++));
     }
 
+    private static void markImagesRendered(String shaderID, String versionID) {
+        JDBI.useHandle(h -> h.createUpdate("""
+                        UPDATE shaders
+                        SET images_rendered_at    = now(),
+                            images_render_version = :version
+                        WHERE id = :id
+                        """)
+                .bind("id", shaderID)
+                .bind("version", versionID));
+    }
+
     private record DownloadResult(Task task, String filename) {
     }
 
-    private record DownloadResultTaskPair(DownloadResult downloadResult, Optional<Task> task) {
+    private record DownloadResultTaskPair(DownloadResult downloadResult, Optional<Task> nextTask) {
     }
 
-    public record Task(String shaderID, String downloadURL) {
+    public record Task(String shaderID, String downloadURL, String versionID) {
     }
 
-    public record Preset(long daytime, boolean rain, Vec3 position, Vec2 rotation) {
+    public record Preset(long daytime, boolean rain, Vec3 position, Vec2 rotation, String id) {
     }
 }

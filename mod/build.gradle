@@ -39,6 +39,8 @@ dependencies {
     implementation "maven.modrinth:AANobbMI:2Yom1N68" // sodium
 
     implementation("com.google.cloud:google-cloud-storage:2.71.0")
+    implementation("org.jdbi:jdbi3-core:3.54.0")
+    implementation("org.postgresql:postgresql:42.7.13")
 }
 
 processResources {

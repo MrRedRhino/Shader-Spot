@@ -7,18 +7,9 @@ import com.google.cloud.storage.StorageOptions;
 import java.io.IOException;
 
 public class ImageProcessor {
-    private static final Storage storage = StorageOptions.newBuilder()
-            .setProjectId("starlit-myth-402020")
-            .build()
-            .getService();
+    private static final Storage storage = StorageOptions.getDefaultInstance().getService();
 
-    public static void main(String[] args) throws IOException, InterruptedException {
-        for (ImageType value : ImageType.values()) {
-            preprocessAndUpload("0aa41b18-4403-495b-8be9-9e4fdf338d25.png", value);
-        }
-    }
-
-    private static void preprocessAndUpload(String file, ImageType imageType) throws IOException, InterruptedException {
+    public static void preprocessAndUpload(String file, ImageType imageType, String presetID, String shaderID) throws IOException, InterruptedException {
         Process process = new ProcessBuilder("./runtime/ffmpeg",
                 "-i", file,
                 "-preset", "photo",
@@ -28,12 +19,13 @@ public class ImageProcessor {
                 "-f", "webp",
                 "-"
         ).start();
-        storage.createFrom(Blob.newBuilder("shader-spot-1", imageType + ".webp").build(), process.getInputStream());
 
+        String name = shaderID + "-" + presetID + "-" + imageType + ".webp";
+        storage.createFrom(Blob.newBuilder("shader-spot-1", name).build(), process.getInputStream());
         assert process.waitFor() == 0 : "FFmpeg process failed";
     }
 
-    private enum ImageType {
+    public enum ImageType {
         HQ("2560:1440", 96),
         LQ("1920:1080", 50),
         THUMB("1280:720", 30);
