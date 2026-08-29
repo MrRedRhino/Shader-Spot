@@ -237,6 +237,7 @@ public class Mod implements ModInitializer {
             try {
                 for (int i = 0; i < ImageType.values().length; i++) {
                     ImageProcessor.preprocessAndUpload(screenshotPath, ImageType.values()[i], presetID, shaderID);
+                    // TODO delete local file
                 }
 
                 future.complete(null);
@@ -269,7 +270,8 @@ public class Mod implements ModInitializer {
                         WHERE id = :id
                         """)
                 .bind("id", shaderID)
-                .bind("version", versionID));
+                .bind("version", versionID)
+                .execute());
     }
 
     private record DownloadResult(Task task, String filename) {
