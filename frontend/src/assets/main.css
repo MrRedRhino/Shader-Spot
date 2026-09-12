@@ -1,0 +1,15 @@
+/* Tailwind v4, without preflight: Naive UI already resets/styles the elements
+   it renders, and Tailwind's preflight fights with it (borders, buttons, etc).
+   See https://tailwindcss.com/docs/preflight#disabling-preflight */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+/* Force dark mode everywhere: `dark:` utilities are always active, and the
+   document itself uses a dark canvas so there's no white flash before Vue
+   mounts / outside Naive UI's rendered surfaces. */
+@custom-variant dark (&);
+
+html {
+    color-scheme: dark;
+    background-color: #101014;
+}
