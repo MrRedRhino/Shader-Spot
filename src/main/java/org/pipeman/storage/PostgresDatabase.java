@@ -8,12 +8,15 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
 
 public class PostgresDatabase implements Database {
     private final Jdbi jdbi = Jdbi.create("jdbc:postgresql://localhost:5432/shader_spot", "postgres", readPassword());
 
     public PostgresDatabase() {
         jdbi.registerRowMapper(ConstructorMapper.factory(Shader.class));
+        jdbi.registerRowMapper(ConstructorMapper.factory(ShaderStatus.class));
     }
 
     private String readPassword() {
@@ -62,5 +65,23 @@ public class PostgresDatabase implements Database {
                 .bind("offset", offset)
                 .mapTo(Shader.class)
                 .list());
+    }
+
+    @Override
+    public Map<String, ShaderStatus> checkShaderStatus(List<String> ids) {
+        Map<String, ShaderStatus> result = jdbi.withHandle(h -> h.createQuery("""
+                        SELECT id, images_render_version AS rendered_version
+                        FROM shaders
+                        WHERE id IN (<ids>)
+                        """)
+                .bindList("ids", ids)
+                .mapTo(ShaderStatus.class)
+                .collectToMap(ShaderStatus::id, Function.identity()));
+
+        for (String id : ids) {
+            result.putIfAbsent(id, new ShaderStatus(id, null));
+        }
+
+        return result;
     }
 }

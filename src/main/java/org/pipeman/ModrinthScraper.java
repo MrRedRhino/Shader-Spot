@@ -39,7 +39,7 @@ public class ModrinthScraper {
                     .toList();
 
             List<String> versionIDs = Modrinth.getProjects(ids).stream()
-                    .map(p -> p.versions().getFirst())
+                    .map(p -> p.versions().getLast())
                     .toList();
             Map<String, List<Modrinth.Version>> versions = Modrinth.getVersions(versionIDs);
 
