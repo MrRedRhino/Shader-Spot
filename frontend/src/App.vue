@@ -74,16 +74,18 @@ function onSearch() {
             </div>
           </div>
 
-          <div class="shader-grid">
-            <div v-for="result in searchResults" :key="result.id" class="rounded-xl bg-gray-300">
-              <div>
-                <NCarousel autoplay v-model:current-index="globalImageIndex">
-                  <img :src="buildUrl(result.id, 'THUMB')" alt="Slide 1" class="w-full"/>
-                  <img :src="buildUrl(result.id, 'HQ')" alt="Slide 1" class="w-full"/>
-                  <img :src="buildUrl(result.id, 'LQ')" alt="Slide 1" class="w-full"/>
-                </NCarousel>
+          <div class="flex justify-center">
+            <div class="shader-grid max-w-382 w-full mt-20">
+              <div v-for="result in searchResults" :key="result.id" class="rounded-xl bg-neutral-800">
+                <div>
+                  <NCarousel autoplay v-model:current-index="globalImageIndex">
+                    <img :src="buildUrl(result.id, 'THUMB')" alt="Slide 1" class="w-full rounded-t-xl"/>
+                    <img :src="buildUrl(result.id, 'HQ')" alt="Slide 1" class="w-full rounded-t-xl"/>
+                    <img :src="buildUrl(result.id, 'LQ')" alt="Slide 1" class="w-full rounded-t-xl"/>
+                  </NCarousel>
+                </div>
+                <h2 class="text-white pl-4">{{ result.name }}</h2>
               </div>
-              <h1 class="text-white">{{ result.name }}</h1>
             </div>
           </div>
         </NDialogProvider>
